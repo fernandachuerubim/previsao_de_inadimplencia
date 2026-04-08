@@ -8,6 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 
 # %%
 path_home = os.getcwd()
@@ -67,19 +68,25 @@ preprocessor = ColumnTransformer(
 )
 
 # %%
-pipeline = Pipeline(
-    steps=[
-        ("preprocessor", preprocessor),
-        ("model", LogisticRegression(class_weight="balanced"))
-])
+models = {
+    "RandomForest": RandomForestClassifier(n_estimators=200, max_depth=6, class_weight="balanced"),
+    "GradientBoostingClassifier": GradientBoostingClassifier(n_estimators=200, max_depth=3),
+    "LogisticRegression": LogisticRegression(max_iter=1000, class_weight="balanced")
+}
 
 # %%
-pipeline.fit(X_train, y_train)
+result = {}
+for name, model in models.items():
+    pipeline = Pipeline(
+        steps=[
+            ("preprocessor", preprocessor),
+            ("model", model)
+    ])
+    pipeline.fit(X_train, y_train)
+    pred = pipeline.predict_proba(X_valid)[:, 1]
+    metric = roc_auc_score(y_valid, pred)
 
-# %%
-pred = pipeline.predict_proba(X_valid)[:, 1]
-
-# %%
-metric = roc_auc_score(y_valid, pred)
+    result[name] = metric
+    print(f"{name} ROC-AUC: {metric:.4f}")
 
 # %%
