@@ -73,7 +73,7 @@ preprocessor = ColumnTransformer(
 )
 
 # %%
-def objective(trial):
+def objective(trial: optuna.trial.Trial):
     with mlflow.start_run(nested=True):
         model_name = trial.suggest_categorical("model", ["RandomForest", "GradientBoostingClassifier", "LogisticRegression"])
         if model_name == "RandomForest": 
@@ -109,16 +109,25 @@ def objective(trial):
         mlflow.log_params(trial.params) #loga os parametros escolhidos o trial é do optuna
         mlflow.log_metric("roc_auc", result)
 
-        mlflow.sklearn.log_model(pipeline, name=model_name)
+        model_info = mlflow.sklearn.log_model(pipeline, name=model_name)
+
+        trial.set_user_attr("model_uri", model_info.model_uri) # cria um novo atributo no trial
 
         return result
 
 # %%
 with mlflow.start_run(run_name="optuna_optimization"):
     study = optuna.create_study(direction="maximize") # padrao optuna chama de study para maximizar
-    study.optimize(objective, n_trials=10)
+    study.optimize(objective, n_trials=3)
 
 print(f"Melhor ROC-AUC: {study.best_value}")
 print(f"Melhores parâmetros: {study.best_params}")
 
+best_trial = study.best_trial # pegando o melhor trial
 
+model_uri = best_trial.user_attrs["model_uri"]
+
+mlflow.register_model(
+    model_uri=model_uri, 
+    name="credit_scoring_model"
+    )
