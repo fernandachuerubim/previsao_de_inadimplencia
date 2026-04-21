@@ -12,10 +12,27 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from mlflow.tracking import MlflowClient
-
+from typing import Tuple, Optional
+from mlflow.entities import ModelVersion
 
 class DataLoader():
-    def load(self):
+    """
+    Carrega os dados da base train.
+
+    Methods: 
+        load: Função que carrega os dados.
+    """
+
+    def load(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+        """
+        Função que carrega os dados.
+
+        Returns:
+                X_train (pd.DataFrame): Dados de treino (features).
+                X_valid (pd.DataFrame): Dados de validação (features).
+                y_train (pd.Series): Target de treino.
+                y_valid (pd.Series): Target de validação.
+        """
         # Carregando os dados
         path_home = os.getcwd()
         train_path = os.path.join(path_home, "data", "train.csv")
@@ -50,7 +67,19 @@ class DataLoader():
         return X_train, X_valid, y_train, y_valid
 
 class PreprocessorBuilder:
+    """
+    Cria um pipeline com o preprocessamento dos dados.
+
+    Methods:
+        build: Cria o pipeline para transformação das variáveis.
+    """
     def build(self):
+        """
+        Cria um pipeline com o preprocessamento dos dados.
+
+        Returns:
+            preprocessor(ColumnTransformer): Pipeline com as tranformações das variáveis.
+        """
         columns = ['target', 'TaxaDeUtilizacaoDeLinhasNaoGarantidas',
        'Idade', 'NumeroDeVezes30_59DiasAtrasoNaoPior', 'TaxaDeEndividamento',
        'RendaMensal', 'NumeroDeLinhasDeCreditoEEmprestimosAbertos',
@@ -90,7 +119,23 @@ class PreprocessorBuilder:
         return preprocessor
 
 class ModelTrainer:
-    def __init__(self, X_train, y_train, X_valid, y_valid, preprocessor):
+    """
+    Treina o modelo, otimiza com o optuna o modelo, faz a validação das métricas e registra o modelo no MLflow.
+
+    Methods:
+        __init__: Inicializa uma instância da classe ModelTrainer.
+        objective: Função optuna que serve para otimizar os parâmetros do modelo.
+    """
+    def __init__(self, X_train: pd.DataFrame, y_train: pd.Series, X_valid: pd.DataFrame, y_valid: pd.Series, preprocessor: ColumnTransformer):
+        """
+        Inicializa uma instância da classe ModelTrainer.
+
+        Args:
+            X_train (pd.DataFrame): Dados de treino (features).
+            X_valid (pd.DataFrame): Dados de validação (features).
+            y_train (pd.Series): Target de treino.
+            y_valid (pd.Series): Target de validação.
+        """
         self.X_train=X_train
         self.y_train = y_train
         self.X_valid = X_valid
@@ -103,7 +148,17 @@ class ModelTrainer:
         mlflow.set_experiment("credit_scoring_optuna") # nome do projeto ou nome do experimento
 
 # Criando a função objective para ser otimizada pelo optuna
-    def objective(self, trial: optuna.trial.Trial):
+    def objective(self, trial: optuna.trial.Trial)-> float:
+        """
+        Função optuna que serve para otimizar os parâmetros do modelo.
+
+        Args:
+            trial (optuna.trial.Trial): o trial é um parâmetro do optuna.
+
+        
+        Returns:
+            result (float): retorna a métrica ROC-AUC.
+        """
         with mlflow.start_run(nested=True):
             model_name = trial.suggest_categorical("model", [
                 "RandomForest", 
@@ -150,7 +205,13 @@ class ModelTrainer:
 
             return result
 
-    def optimaze(self, n_trial=6):
+    def optimaze(self, n_trial=6) -> optuna.study: 
+        """
+        Inicia o MLflow e usa a função optimize para encontrar os melhores parâmetros para o modelo.
+
+        Args:
+            n_trial (int): número de vezes para executar o experimento, neste caso, utilizado como padrão 6.
+        """
         # Inicilizando o mlflow e usando o optuna para otimizar
         with mlflow.start_run(run_name="optuna_optimization"):
             study = optuna.create_study(direction="maximize") # padrao optuna chama de study para maximizar
@@ -160,21 +221,42 @@ class ModelTrainer:
         return study
     
     # Cria a função para métrica ROC-AUC
-    def evaluate_model(self, model_uri, X_valid, y_valid):
+    def evaluate_model(self, model_uri:str, X_valid: pd.DataFrame, y_valid: pd.DataFrame) -> float:
+        """
+        Calcula a predição pelo pipeline e retorna a métrica ROC-AUC.
+
+        Args:
+            model_uri (str): Caminho do modelo no MLflow
+            X_valid (pd.DataFrame): Dados de validação (features).
+            y_valid (pd.Series): Target de validação.
+
+        Returns:
+            result (float): retorna a métrica ROC-AUC.
+        """ 
+
         pipeline = mlflow.sklearn.load_model(model_uri)
         pred = pipeline.predict_proba(X_valid)[:,1]
 
         return roc_auc_score(y_valid, pred)
     
     # Pega a versão do modelo com status de produção(production)
-    def get_champion(self):
+    def get_champion(self) -> ModelVersion | None:
+        """
+        Utiliza a versão do modelo com "status" de "production"
+
+        Returns:
+            v (ModelVersion | None): é a última versão do modelo.
+        """
         versions = self.client.search_model_versions(f"name='{self.MODEL_NAME}'")
         for v in versions:
             if v.tags.get("status") == "production":
                 return v
         return None
 
-    def promoter_model(self):
+    def promoter_model(self) -> None:
+        """
+        Registra o melhor modelo entre o treino e produção, faz a comparação e escolhe o melhor modelo.
+        """
         # Pegando o melhor trial do optuna
         best_trial = self.study.best_trial # pegando o melhor trial
 
