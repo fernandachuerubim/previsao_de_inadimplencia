@@ -1,0 +1,37 @@
+site_name: Previsão de Inadimplência 💰
+
+theme:
+  name: material
+  features:
+    - navigation.top
+
+  palette:
+      - scheme: slate
+        accent: 'pink'
+        toggle:
+          icon: material/weather-sunny
+          name: Switch to light mode
+      - scheme: dark
+        accent: 'pink'
+        toggle:
+          icon: material/weather-night
+          name: Switch to dark mode
+
+nav:
+  - ❗Introdução: index.md
+  - DataLoad: DataLoad.md
+  - PreprocessorBuilder: PreprocessorBuilder.md
+  - ModelTrainer: ModelTrainer.md
+  - Streamlit: streamlit.md
+
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+plugins:
+  - search
+  - autorefs
+  - mkdocstrings
+  - gen-files:
+      scripts:
+        - docs/gen_home_page.py
