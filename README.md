@@ -4,6 +4,36 @@ Projeto de Análise Preditiva de Crédito com Treinamento de Modelo, API de prev
 Este repositório contém um pipeline para treinar modelos de score de crédito usando MLflow, além de uma API para fazer as predições e um painel streamlit para interagir com os dados.
 
 # Estrutura do Projeto
+
+```
+linkedin-webscraper
+|---.gitignore
+|---.python-version
+|---api.py
+|---home.py
+|---main.py
+|---mkdocs.yml
+|---mlflow.db
+|---pyproject.toml
+|---README.md
+|---uv.lock
+|   
++---data
+|-------test.csv
+|-------train.csv
+|       
++---docs
+|-------DataLoad.md
+|-------gen_home_page.py
+|-------ModelTrainer.md
+|-------PreprocessorBuilder.md
+|-------streamlit.md
+|       
++---pages
+|-------app.py
+|-------painel.py
+```
+
 - `main.py` - Treina os dados, usa o optuna para otimizar os parâmetros do modelo para que tenhamos os melhores resultados e registra o melhor o modelo no MLflow.
 
 - `api.py` - API utilizando o FastAPI e expõe a rota `/predict`. 
