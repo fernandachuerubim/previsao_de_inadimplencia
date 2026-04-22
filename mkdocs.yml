@@ -23,6 +23,7 @@ nav:
   - PreprocessorBuilder: PreprocessorBuilder.md
   - ModelTrainer: ModelTrainer.md
   - Streamlit: streamlit.md
+  - API: api.md
 
 markdown_extensions:
   - pymdownx.highlight
@@ -35,3 +36,6 @@ plugins:
   - gen-files:
       scripts:
         - docs/gen_home_page.py
+
+extra_javascript:
+  - javascripts/open_source.js
