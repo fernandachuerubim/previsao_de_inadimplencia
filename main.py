@@ -1,4 +1,3 @@
-
 import pandas as pd
 import os
 import optuna
@@ -13,7 +12,9 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from mlflow.tracking import MlflowClient
 from typing import Tuple, Optional
-from mlflow.entities import ModelVersion
+import dagshub
+from mlflow.exceptions import RestException
+from mlflow.entities.model_registry import ModelVersion
 
 class DataLoader():
     """
@@ -142,10 +143,10 @@ class ModelTrainer:
         self.y_valid = y_valid
         self.preprocessor = preprocessor
 
-        self.client = MlflowClient()
+        self.client = None
         self.MODEL_NAME = "credit_scoring_model"
         # Configurações
-        mlflow.set_experiment("credit_scoring_optuna") # nome do projeto ou nome do experimento
+
 
 # Criando a função objective para ser otimizada pelo optuna
     def objective(self, trial: optuna.trial.Trial)-> float:
@@ -213,6 +214,11 @@ class ModelTrainer:
             n_trial (int): número de vezes para executar o experimento, neste caso, utilizado como padrão 6.
         """
         # Inicilizando o mlflow e usando o optuna para otimizar
+
+        dagshub.init(repo_owner='fernandachuerubim', repo_name='previsao_de_inadimplencia', mlflow=True) 
+        mlflow.set_tracking_uri("https://dagshub.com/fernandachuerubim/previsao_de_inadimplencia.mlflow")
+        self.client = MlflowClient()
+        mlflow.set_experiment("credit_scoring_optuna") # nome do projeto ou nome do experimento
         with mlflow.start_run(run_name="optuna_optimization"):
             study = optuna.create_study(direction="maximize") # padrao optuna chama de study para maximizar
             study.optimize(self.objective, n_trials=n_trial)
@@ -221,7 +227,7 @@ class ModelTrainer:
         return study
     
     # Cria a função para métrica ROC-AUC
-    def evaluate_model(self, model_uri:str, X_valid: pd.DataFrame, y_valid: pd.DataFrame) -> float:
+    def evaluate_model(self, model_uri: str, X_valid: pd.DataFrame, y_valid: pd.Series) -> float:
         """
         Calcula a predição pelo pipeline e retorna a métrica ROC-AUC.
 
@@ -234,107 +240,178 @@ class ModelTrainer:
             result (float): retorna a métrica ROC-AUC.
         """ 
 
+
+        print(f"Carregando modelo: {model_uri}")
+
         pipeline = mlflow.sklearn.load_model(model_uri)
-        pred = pipeline.predict_proba(X_valid)[:,1]
+        pred = pipeline.predict_proba(X_valid)[:, 1]
 
         return roc_auc_score(y_valid, pred)
-    
-    # Pega a versão do modelo com status de produção(production)
+
     def get_champion(self) -> ModelVersion | None:
         """
         Utiliza a versão do modelo com "status" de "production"
 
         Returns:
-            v (ModelVersion | None): é a última versão do modelo.
+            version (ModelVersion | None): é a última versão do modelo.
         """
-        versions = self.client.search_model_versions(f"name='{self.MODEL_NAME}'")
-        for v in versions:
-            if v.tags.get("status") == "production":
-                return v
+
+        if self.client is None:
+            self.client = MlflowClient()
+
+        try:
+            versions = self.client.search_model_versions(f"name='{self.MODEL_NAME}'")
+        except Exception as e:
+            print(f"Nenhum modelo registrado encontrado ainda: {e}")
+            return None
+
+        production_versions = [
+            v for v in versions
+            if v.tags.get("status") == "production"
+        ]
+
+        if not production_versions:
+            return None
+
+        # Pega a versão mais recente marcada como produção
+        production_versions = sorted(
+            production_versions,
+            key=lambda v: int(v.version),
+            reverse=True
+        )
+
+        for version in production_versions:
+            try:
+                mlflow.sklearn.load_model(version.source)
+                return version
+
+            except Exception as e:
+                print(f"Versão {version.version} marcada como production não carregou.")
+                print(f"Erro: {e}")
+                print("Marcando essa versão como archived.")
+
+                try:
+                    self.client.set_model_version_tag(
+                        name=self.MODEL_NAME,
+                        version=version.version,
+                        key="status",
+                        value="archived"
+                    )
+                except Exception:
+                    pass
+
         return None
+
+    def register_as_production(self, model_uri: str):
+        """
+        Registra o modelo treinado e marca como produção.
+
+        Returns:
+            model_uri (str): model uri do modelo.
+        """
+
+        if self.client is None:
+            self.client = MlflowClient()
+
+        result = mlflow.register_model(
+            model_uri=model_uri,
+            name=self.MODEL_NAME
+        )
+
+        new_version = result.version
+
+        self.client.set_model_version_tag(
+            name=self.MODEL_NAME,
+            version=new_version,
+            key="status",
+            value="production"
+        )
+
+        print(f"Modelo versão {new_version} promovido para produção.")
+        return result
 
     def promoter_model(self) -> None:
         """
-        Registra o melhor modelo entre o treino e produção, faz a comparação e escolhe o melhor modelo.
+        Registra o melhor modelo entre o treino e produção.
+        Se não houver champion válido, promove o modelo atual.
         """
-        # Pegando o melhor trial do optuna
-        best_trial = self.study.best_trial # pegando o melhor trial
 
-        # pegando a uri do melhor modelo
+        if self.client is None:
+            self.client = MlflowClient()
+
+        # Pegando o melhor trial do Optuna
+        best_trial = self.study.best_trial
+
+        # Pegando a URI do melhor modelo treinado
         model_uri = best_trial.user_attrs["model_uri"]
 
-        # Calcula a métrica ROC-AUC do modelo atual(desafiador)
+        # Calcula a métrica ROC-AUC do modelo atual, o challenger
         challenger_score = self.evaluate_model(
-            model_uri=model_uri, 
-            X_valid=self.X_valid, 
+            model_uri=model_uri,
+            X_valid=self.X_valid,
             y_valid=self.y_valid
-            )
+        )
 
-        # Pega o melhor modelo em produção
-        champion = self.get_champion() # champion vai retornar a versão do mlflow
+        print(f"Challenger ROC-AUC: {challenger_score:.4f}")
 
-        # Verifica se existe um modelo em produção
+        # Pega o modelo atualmente em produção
+        champion = self.get_champion()
+
+        # Se não existe champion válido, registra o modelo atual
         if champion is None:
-            # Registra o modelo treinado
-            result = mlflow.register_model(
-                model_uri=model_uri, 
-                name=self.MODEL_NAME
-                )
-            # Pega a versão do modelo
-            new_version = result.version
+            print("Nenhum champion válido encontrado.")
+            print("Promovendo o modelo atual para produção.")
+            self.register_as_production(model_uri)
+            return
 
-            # Registra a versão treinada como produção
-            self.client.set_model_version_tag(
-                name=self.MODEL_NAME,
-                version=new_version,
-                key="status",
-                value="production"
-            )
+        print(f"Champion encontrado: versão {champion.version}")
+        print(f"Champion source: {champion.source}")
 
-            print("Primeiro modelo promovido para produção")
-
-        else: # Caso exista um champion em produção
-            # Cria a uri do champion
-            champion_uri = f"models:/{self.MODEL_NAME}/{champion.version}"
-            # Calcula a métrica ROC-AUC do modelo em produção
+        try:
+            # Aqui carrega direto do source do modelo registrado.
             champion_score = self.evaluate_model(
-                model_uri=champion_uri,
+                model_uri=champion.source,
                 X_valid=self.X_valid,
                 y_valid=self.y_valid
             )
 
-            print(f"Champion ROC-AUC: {champion_score:.4f}")
+        except Exception as e:
+            print("Não foi possível carregar o champion atual.")
+            print(f"Erro: {e}")
+            print("Promovendo o modelo atual para produção.")
 
-            # Verifica qual modelo tem a melhor métrica (treinado ou produção)
-            if challenger_score > champion_score + 0.05:
-                print("Challenger é melhor! promovendo.")
-
-                # Registra o modelo treinado
-                result = mlflow.register_model(
-                    model_uri=model_uri, 
-                    name=self.MODEL_NAME
-                    )
-                # Pega a versão do modelo
-                new_version = result.version
-
-                # Registra a versão treinada como produção
-                self.client.set_model_version_tag(
-                    name=self.MODEL_NAME,
-                    version=new_version,
-                    key="status",
-                    value="production"
-                )
-            
-                # arquivando o champion no mlflow
+            try:
                 self.client.set_model_version_tag(
                     name=self.MODEL_NAME,
                     version=champion.version,
                     key="status",
                     value="archived"
                 )
-            # o modelo que está no mlflow é melhor que o treinado atualmente
-            else:
-                print("Champion continua sendo o melhor.")
+            except Exception:
+                pass
+
+            self.register_as_production(model_uri)
+            return
+
+        print(f"Champion ROC-AUC: {champion_score:.4f}")
+
+        # Compara challenger com champion
+        if challenger_score > champion_score + 0.05:
+            print("Challenger é melhor. Promovendo.")
+
+            # Arquiva o champion antigo
+            self.client.set_model_version_tag(
+                name=self.MODEL_NAME,
+                version=champion.version,
+                key="status",
+                value="archived"
+            )
+
+            # Registra o challenger como novo production
+            self.register_as_production(model_uri)
+
+        else:
+            print("Champion continua sendo o melhor.")
 
 if __name__ == "__main__":
 
@@ -358,13 +435,4 @@ if __name__ == "__main__":
     print(f"Melhores parâmetros: {study.best_params}")
 
     trainer.promoter_model() # verifica qual modelo é o melhor se é o atual ou que está em produção
-
-
-
-
-
-
-
-
-
 

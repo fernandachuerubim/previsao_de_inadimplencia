@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "dagshub>=0.7.0",
     "ipykernel>=7.2.0",
     "mkdocs>=1.6.1",
     "mkdocs-autorefs>=1.4.4",
@@ -12,6 +13,7 @@ dependencies = [
     "mkdocs-material>=9.7.6",
     "mkdocstrings[python]>=1.0.4",
     "mlflow>=3.10.1",
+    "numpy>=2.4.4",
     "optuna>=4.8.0",
     "plotly>=6.7.0",
     "pymdown-extensions>=10.21.2",
