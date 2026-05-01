@@ -10,13 +10,17 @@ Além disso, a interface apresenta métricas resumidas e organiza os resultados 
 
 import streamlit as st
 import requests
+from dotenv import load_dotenv
+import os
 
 st.set_page_config(page_title="credit scoring", page_icon="💳")
 col1, col2 = st.columns(2, border=True)
 col1.page_link("pages/app.py", label="Score de Crédito (1º Painel)", icon="💳")
 col2.page_link("pages/painel.py", label="Dashboard de Risco (2º Painel)", icon="📊")
 
-API_URL = "http://localhost:8000/predict"
+load_dotenv()
+
+API_URL=os.getenv("API_URL")
 
 st.title("💰 Score de Crédito 💰", text_alignment="center")
 
