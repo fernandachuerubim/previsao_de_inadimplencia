@@ -12,14 +12,13 @@ load_dotenv()
 os.environ['MLFLOW_TRACKING_USERNAME']
 os.environ['MLFLOW_TRACKING_PASSWORD']
 
-
-dagshub.init(repo_owner='fernandachuerubim', repo_name='previsao_de_inadimplencia', mlflow=True) 
 mlflow.set_tracking_uri("https://dagshub.com/fernandachuerubim/previsao_de_inadimplencia.mlflow")
 
 model_name = "credit_scoring_model"
 model_version = "latest"
 
 model_uri = f"models:/{model_name}/{model_version}"
+model = mlflow.sklearn.load_model(model_uri=model_uri) # pegando o caminho que ta no mlflow
 
 class DadosEntrada(BaseModel):
     """
@@ -73,9 +72,6 @@ def predict(dados: DadosEntrada):
     Returns:
         data (dict): dicionário com a predição e a probabilidade.
     """
-
-
-    model = mlflow.sklearn.load_model(model_uri=model_uri) # pegando o caminho que ta no mlflow
 
     df = pd.DataFrame([dados.model_dump()])
 
